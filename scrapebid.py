@@ -15,35 +15,6 @@ def retrieve_db_config(line_name, db_connection):
     db_connection["passwd"] = cfg.get(line_name, "passwd")
     return
 
-# def record_bid_into_db(line_name, bid):
-#     db_connection = {"host": {}, "user": {}, "passwd": {}, "db": {}, "table": {}}
-#     retrieve_db_config(line_name, db_connection)
-#     conn = pymysql.connect(host=db_connection["host"],
-#                            user=db_connection["user"],
-#                            passwd=db_connection["passwd"],
-#                            db="pymysql")
-#     cur = conn.cursor()
-#     cur.execute("USE pymysql")
-#
-#     #bids ops
-#     bid_str = datetime.date.today()
-#
-#         print(bid_url)
-#         print(bid_title)
-#         print(bid_abstract)
-#         print(bid_datetime.strip())
-#         print(bid_location.strip())
-#         print(bid_type.strip())
-#         print(bid_buyer.strip())
-#         print(bid_pinmu.strip())
-#
-#     cur.execute("INSERT INTO tb_bid (url, title, abstract, datetime, location, type, buyer, pinmu, created) VALUES (%s, %s, %s, )", bid_str)
-#     cur.connection.commit()
-#
-#     cur.close()
-#     conn.close()
-#     return
-
 request_url = "http://search.ccgp.gov.cn/dataB.jsp"
 request_parameter_search_type = "?searchtype=2"
 request_parameter_page_index = "&page_index="
@@ -88,18 +59,9 @@ def scrape_bid_1page(url):
     str(bsObj)
     bsbids = bsObj.find("ul", {"class", "vT-srch-result-list-bid"})
 
-    db_connection = {"host": {}, "user": {}, "passwd": {}, "db": {}, "table": {}}
-    retrieve_db_config("local_line", db_connection)
-    conn = pymysql.connect(host=db_connection["host"],
-                           user=db_connection["user"],
-                           passwd=db_connection["passwd"],
-                           db="pymysql")
-    conn.set_charset('utf8')
-    cur = conn.cursor()
-    cur.execute('SET NAMES utf8;')
-    cur.execute('SET CHARACTER SET utf8;')
-    cur.execute('SET character_set_connection=utf8;')
-    cur.execute("USE pymysql")
+    SQL_str = "INSERT INTO tb_bid (url, title, abstract, datetime, location, type, buyer, pinmu, created) VALUES"
+
+    created = datetime.date.today()
 
     for bid in bsbids.select("li"):
         # bid basic info, string op
@@ -112,40 +74,52 @@ def scrape_bid_1page(url):
 
         bid_url = bid.a.get("href")
         bid_title = bid.a.string
-        bid_abstract = bid.p.string
+        bid_abstract = bid.p.string #<p></p> maybe null
+        if bid_abstract is None:
+            bid_abstract = "null"
         bid_datetime = bidspan[0:index_1st_separator]
         bid_buyer = bidspan[index_buyer + lens:index_2nd_separator]
         bid_location = bid.span.a.get_text()
         bid_type = bid.span.strong.get_text()
         bid_pinmu = bidspan[index_last_separator + 1:]
 
-        # print(bid_url)
-        # print(bid_title)
-        # print(bid_abstract)
-        # print(bid_datetime.strip())
-        # print(bid_location.strip())
-        # print(bid_type.strip())
-        # print(bid_buyer.strip())
-        # print(bid_pinmu.strip())
+        SQL_str_bid = "(\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")," % (
+            bid_url,
+            bid_title.strip().replace('"','*'),
+            bid_abstract.strip().replace('"','*'),
+            bid_datetime.strip(),
+            bid_location.strip().replace('"','*'),
+            bid_type.strip().replace('"','*'),
+            bid_buyer.strip().replace('"','*'),
+            bid_pinmu.strip().replace('"','*'),
+            created)
 
-        created = datetime.date.today()
-        cur.execute("INSERT INTO tb_bid (url, title, abstract, datetime, location, type, buyer, pinmu, created) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (bid_url,
-                    bid_title,
-                    bid_abstract,
-                    bid_datetime.strip(),
-                    bid_location.strip(),
-                    bid_type.strip(),
-                    bid_buyer.strip(),
-                    bid_pinmu.strip(),
-                    created)
-                    )
+        # print(SQL_str_bid)
 
-        cur.connection.commit()
+        SQL_str += SQL_str_bid
 
+    # print(SQL_str)
+    record_bid_into_db(SQL_str.strip(','))
+    return
+
+
+def record_bid_into_db(SQL_str):
+    db_connection = {"host": {}, "user": {}, "passwd": {}, "db": {}, "table": {}}
+    retrieve_db_config("prod_line", db_connection)
+    conn = pymysql.connect(host=db_connection["host"],
+                           user=db_connection["user"],
+                           passwd=db_connection["passwd"],
+                           db="BID")
+    conn.set_charset('utf8')
+    cur = conn.cursor()
+    cur.execute('SET NAMES utf8;')
+    cur.execute('SET CHARACTER SET utf8;')
+    cur.execute('SET character_set_connection=utf8;')
+    cur.execute("USE BID")
+    cur.execute(SQL_str)
+    cur.connection.commit()
     cur.close()
     conn.close()
-    return
 
 
 def generate_url(page_index):
@@ -171,12 +145,12 @@ def generate_url(page_index):
 def scrape_bid():
     page_index = 1
     page_number = scrape_page_number(generate_url(1))  # get page number
-    print(page_number)
+    print("total page number is: %s", page_number)
     while (page_index <= page_number):
         url = generate_url(page_index)
         page_index = page_index + 1
         # ++page_index #infinite loop
         print(url)
         scrape_bid_1page(url)
-        print("###########################")
+        # print("###########################")
     return
