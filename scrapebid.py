@@ -3,6 +3,46 @@ __author__ = 'KurtXu'
 from urllib.request import urlopen
 from bs4 import BeautifulSoup
 import datetime
+import configparser
+import pymysql
+
+
+def retrieve_db_config(line_name, db_connection):
+    cfg = configparser.ConfigParser()
+    cfg.read("conf.cfg")
+    db_connection["host"] = cfg.get(line_name, "host")
+    db_connection["user"] = cfg.get(line_name, "user")
+    db_connection["passwd"] = cfg.get(line_name, "passwd")
+    return
+
+# def record_bid_into_db(line_name, bid):
+#     db_connection = {"host": {}, "user": {}, "passwd": {}, "db": {}, "table": {}}
+#     retrieve_db_config(line_name, db_connection)
+#     conn = pymysql.connect(host=db_connection["host"],
+#                            user=db_connection["user"],
+#                            passwd=db_connection["passwd"],
+#                            db="pymysql")
+#     cur = conn.cursor()
+#     cur.execute("USE pymysql")
+#
+#     #bids ops
+#     bid_str = datetime.date.today()
+#
+#         print(bid_url)
+#         print(bid_title)
+#         print(bid_abstract)
+#         print(bid_datetime.strip())
+#         print(bid_location.strip())
+#         print(bid_type.strip())
+#         print(bid_buyer.strip())
+#         print(bid_pinmu.strip())
+#
+#     cur.execute("INSERT INTO tb_bid (url, title, abstract, datetime, location, type, buyer, pinmu, created) VALUES (%s, %s, %s, )", bid_str)
+#     cur.connection.commit()
+#
+#     cur.close()
+#     conn.close()
+#     return
 
 request_url = "http://search.ccgp.gov.cn/dataB.jsp"
 request_parameter_search_type = "?searchtype=2"
@@ -21,7 +61,6 @@ request_parameter_zone_id = "&zoneId="
 request_parameter_ppp_status = "&pppStatus="
 request_parameter_agent_name = "&agentName="
 
-
 def scrape_page_number(url):
     html = urlopen(url)
     bsObj = BeautifulSoup(html, "html.parser")
@@ -37,22 +76,31 @@ def scrape_page_number(url):
     page_number = pager_str[index1: index2]
     return int(page_number)
 
-
-# def genernate_page_index(page_index):
-#     return ++page_index
-
 def generate_query_date():
     today = datetime.date.today()
     query_date = "&start_time=%d%%3A%d%%3A%d&end_time=%d%%3A%d%%3A%d" % (
         today.year, today.month, today.day, today.year, today.month, today.day)
     return query_date
 
-
 def scrape_bid_1page(url):
     html = urlopen(url)
     bsObj = BeautifulSoup(html, "html.parser")
     str(bsObj)
     bsbids = bsObj.find("ul", {"class", "vT-srch-result-list-bid"})
+
+    db_connection = {"host": {}, "user": {}, "passwd": {}, "db": {}, "table": {}}
+    retrieve_db_config("local_line", db_connection)
+    conn = pymysql.connect(host=db_connection["host"],
+                           user=db_connection["user"],
+                           passwd=db_connection["passwd"],
+                           db="pymysql")
+    conn.set_charset('utf8')
+    cur = conn.cursor()
+    cur.execute('SET NAMES utf8;')
+    cur.execute('SET CHARACTER SET utf8;')
+    cur.execute('SET character_set_connection=utf8;')
+    cur.execute("USE pymysql")
+
     for bid in bsbids.select("li"):
         # bid basic info, string op
         bidspan = bid.span.get_text()
@@ -71,15 +119,32 @@ def scrape_bid_1page(url):
         bid_type = bid.span.strong.get_text()
         bid_pinmu = bidspan[index_last_separator + 1:]
 
-        print(bid_url)
-        print(bid_title)
-        print(bid_abstract)
-        print(bid_datetime.strip())
-        print(bid_location.strip())
-        print(bid_type.strip())
-        print(bid_buyer.strip())
-        print(bid_pinmu.strip())
-        print("///////////////////////////////////////////////////////////////////")
+        # print(bid_url)
+        # print(bid_title)
+        # print(bid_abstract)
+        # print(bid_datetime.strip())
+        # print(bid_location.strip())
+        # print(bid_type.strip())
+        # print(bid_buyer.strip())
+        # print(bid_pinmu.strip())
+
+        created = datetime.date.today()
+        cur.execute("INSERT INTO tb_bid (url, title, abstract, datetime, location, type, buyer, pinmu, created) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (bid_url,
+                    bid_title,
+                    bid_abstract,
+                    bid_datetime.strip(),
+                    bid_location.strip(),
+                    bid_type.strip(),
+                    bid_buyer.strip(),
+                    bid_pinmu.strip(),
+                    created)
+                    )
+
+        cur.connection.commit()
+
+    cur.close()
+    conn.close()
     return
 
 
