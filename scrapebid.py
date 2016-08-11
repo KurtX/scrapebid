@@ -5,53 +5,38 @@ from bs4 import BeautifulSoup
 import datetime
 import configparser
 import pymysql
+import time
 
 
 def retrieve_db_config(line_name, db_connection):
     cfg = configparser.ConfigParser()
-    cfg.read("conf.cfg")
+    cfg.read("db_conf.cfg")
     db_connection["host"] = cfg.get(line_name, "host")
     db_connection["user"] = cfg.get(line_name, "user")
     db_connection["passwd"] = cfg.get(line_name, "passwd")
     return
 
-request_url = "http://search.ccgp.gov.cn/dataB.jsp"
-request_parameter_search_type = "?searchtype=2"
-request_parameter_page_index = "&page_index="
-request_parameter_bid_sort = "&bidSort=0"
-request_parameter_buyer_name = "&buyerName="
-request_parameter_project_id = "&projectId="
-request_parameter_pin_mu = "&pinMu=0"
-request_parameter_bid_type = "&bidType=0"
-request_parameter_db_select = "&dbselect=bidx"
-request_parameter_kw = "&kw="
-request_parameter_query_date = ""
-request_parameter_time_type = "&timeType=0"
-request_parameter_display_zone = "&displayZone="
-request_parameter_zone_id = "&zoneId="
-request_parameter_ppp_status = "&pppStatus="
-request_parameter_agent_name = "&agentName="
 
 def scrape_page_number(url):
     html = urlopen(url)
     bsObj = BeautifulSoup(html, "html.parser")
     str(bsObj)
     pager = bsObj.find("p", {"class", "pager"})
-    print(pager.get_text())  # pager_str = "Pager({size:318, current:0, prefix:'data2',suffix:'.jsp&'});"
+    # print(pager.get_text())  # pager_str = "Pager({size:318, current:0, prefix:'data2',suffix:'.jsp&'});"
     pager_str = pager.get_text()
     index1 = pager_str.find("size:")
     index1 += 5
     index2 = pager_str.find(",")
-    print(index1, index2)
     # size = pager_str[index1,index2]
     page_number = pager_str[index1: index2]
     return int(page_number)
 
-def generate_query_date():
-    today = datetime.date.today()
-    query_date = "&start_time=%d%%3A%d%%3A%d&end_time=%d%%3A%d%%3A%d" % (
-        today.year, today.month, today.day, today.year, today.month, today.day)
+
+def generate_query_date(date=datetime.date.today()):
+    query_date = "&start_time=%d%%3A%d%%3A%d&end_time=%d%%3A%d%%3A%d" \
+                 % (date.year, date.month, date.day, date.year, date.month, date.day)
     return query_date
+
 
 def scrape_bid_1page(url):
     html = urlopen(url)
@@ -74,9 +59,10 @@ def scrape_bid_1page(url):
 
         bid_url = bid.a.get("href")
         bid_title = bid.a.string
-        bid_abstract = bid.p.string #<p></p> maybe null
+        bid_abstract = bid.p.string  # <p></p> maybe null
         if bid_abstract is None:
             bid_abstract = "null"
+        bid_abstract = bid_abstract.strip().strip('?').replace('"', '*').replace('\\', '/')
         bid_datetime = bidspan[0:index_1st_separator]
         bid_buyer = bidspan[index_buyer + lens:index_2nd_separator]
         bid_location = bid.span.a.get_text()
@@ -85,20 +71,18 @@ def scrape_bid_1page(url):
 
         SQL_str_bid = "(\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\")," % (
             bid_url,
-            bid_title.strip().replace('"','*'),
-            bid_abstract.strip().replace('"','*'),
+            bid_title.strip().replace('"', '*'),
+            bid_abstract,
             bid_datetime.strip(),
-            bid_location.strip().replace('"','*'),
-            bid_type.strip().replace('"','*'),
-            bid_buyer.strip().replace('"','*'),
-            bid_pinmu.strip().replace('"','*'),
+            bid_location.strip().replace('"', '*'),
+            bid_type.strip().replace('"', '*'),
+            bid_buyer.strip().replace('"', '*'),
+            bid_pinmu.strip().replace('"', '*'),
             created)
 
         # print(SQL_str_bid)
-
         SQL_str += SQL_str_bid
 
-    # print(SQL_str)
     record_bid_into_db(SQL_str.strip(','))
     return
 
@@ -122,7 +106,24 @@ def record_bid_into_db(SQL_str):
     conn.close()
 
 
-def generate_url(page_index):
+def generate_url(query_date=datetime.date.today(), page_index=1):
+    request_url = "http://search.ccgp.gov.cn/dataB.jsp"
+    request_parameter_search_type = "?searchtype=2"
+    request_parameter_page_index = "&page_index="
+    request_parameter_bid_sort = "&bidSort=0"
+    request_parameter_buyer_name = "&buyerName="
+    request_parameter_project_id = "&projectId="
+    request_parameter_pin_mu = "&pinMu=0"
+    request_parameter_bid_type = "&bidType=0"
+    request_parameter_db_select = "&dbselect=bidx"
+    request_parameter_kw = "&kw="
+    request_parameter_query_date = ""
+    request_parameter_time_type = "&timeType=0"
+    request_parameter_display_zone = "&displayZone="
+    request_parameter_zone_id = "&zoneId="
+    request_parameter_ppp_status = "&pppStatus="
+    request_parameter_agent_name = "&agentName="
+
     url = request_url \
           + request_parameter_search_type \
           + request_parameter_page_index + str(page_index) \
@@ -133,7 +134,7 @@ def generate_url(page_index):
           + request_parameter_bid_type \
           + request_parameter_db_select \
           + request_parameter_kw \
-          + generate_query_date() \
+          + generate_query_date(query_date) \
           + request_parameter_time_type \
           + request_parameter_display_zone \
           + request_parameter_zone_id \
@@ -142,15 +143,14 @@ def generate_url(page_index):
     return url
 
 
-def scrape_bid():
+def scrape_bid(bid_date=datetime.date.today()):
     page_index = 1
-    page_number = scrape_page_number(generate_url(1))  # get page number
-    print("total page number is: %s", page_number)
+    page_number = scrape_page_number(generate_url(bid_date, page_index))  # get page number
+    print("total page number is: ", page_number)
     while (page_index <= page_number):
-        url = generate_url(page_index)
-        page_index = page_index + 1
-        # ++page_index #infinite loop
-        print(url)
+        time.sleep(1)  # sleep 1 second
+        url = generate_url(bid_date, page_index)
+        print("%s %03d/%d %s" %(bid_date, page_index, page_number, url))
+        page_index += 1  # ++page_index must result in a infinite loop
         scrape_bid_1page(url)
-        # print("###########################")
     return
