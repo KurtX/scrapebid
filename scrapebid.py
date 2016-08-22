@@ -1,11 +1,30 @@
 __author__ = 'KurtXu'
 
-from urllib.request import urlopen
-from bs4 import BeautifulSoup
 import datetime
 import configparser
 import pymysql
 import time
+import logging
+import urllib.request
+from bs4 import BeautifulSoup
+from logging.handlers import TimedRotatingFileHandler
+
+
+def get_logger():
+    log_format = '[%(asctime)s][%(filename)s][line:%(lineno)d][func:%(funcName)s()][%(levelname)s]: %(message)s'
+
+    handler = TimedRotatingFileHandler('scrapebid.log', 'midnight', 1)
+    handler.suffix = "%Y-%m-%d.log"
+    handler.setFormatter(logging.Formatter(log_format))
+
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter(log_format))
+
+    logger = logging.getLogger()
+    logger.addHandler(handler)
+    logger.addHandler(console)
+    logger.setLevel(logging.DEBUG)
+    return logger
 
 
 def retrieve_db_config(line_name, db_connection):
@@ -18,7 +37,7 @@ def retrieve_db_config(line_name, db_connection):
 
 
 def scrape_page_number(url):
-    html = urlopen(url)
+    html = request_url(url)
     bsObj = BeautifulSoup(html, "html.parser")
     str(bsObj)
     pager = bsObj.find("p", {"class", "pager"})
@@ -32,6 +51,17 @@ def scrape_page_number(url):
     return int(page_number)
 
 
+def request_url(url):
+    request = urllib.request.Request(url)
+    request.add_header('Host', 'search.ccgp.gov.cn')
+    request.add_header('Connection', 'keep-alive')
+    request.add_header('User-Agent',
+                       'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/52.0.2743.116 Safari/537.36')
+    request.add_header('Referer', 'http://www.ccgp.gov.cn/')
+    html = urllib.request.urlopen(request)
+    return html
+
+
 def generate_query_date(date=datetime.date.today()):
     query_date = "&start_time=%d%%3A%d%%3A%d&end_time=%d%%3A%d%%3A%d" \
                  % (date.year, date.month, date.day, date.year, date.month, date.day)
@@ -39,7 +69,7 @@ def generate_query_date(date=datetime.date.today()):
 
 
 def scrape_bid_1page(url):
-    html = urlopen(url)
+    html = request_url(url)
     bsObj = BeautifulSoup(html, "html.parser")
     str(bsObj)
     bsbids = bsObj.find("ul", {"class", "vT-srch-result-list-bid"})
@@ -89,7 +119,7 @@ def scrape_bid_1page(url):
 
 def record_bid_into_db(SQL_str):
     db_connection = {"host": {}, "user": {}, "passwd": {}, "db": {}, "table": {}}
-    retrieve_db_config("prod_line", db_connection)
+    retrieve_db_config("local_line", db_connection)
     conn = pymysql.connect(host=db_connection["host"],
                            user=db_connection["user"],
                            passwd=db_connection["passwd"],
@@ -104,6 +134,7 @@ def record_bid_into_db(SQL_str):
     cur.connection.commit()
     cur.close()
     conn.close()
+    return
 
 
 def generate_url(query_date=datetime.date.today(), page_index=1):
@@ -144,13 +175,16 @@ def generate_url(query_date=datetime.date.today(), page_index=1):
 
 
 def scrape_bid(bid_date=datetime.date.today()):
+    logger = get_logger()
     page_index = 1
     page_number = scrape_page_number(generate_url(bid_date, page_index))  # get page number
-    print("total page number is: ", page_number)
+    logger.debug("total page number is: %s" % page_number)
+    logger.debug("begin scrape each page")
     while (page_index <= page_number):
         time.sleep(1)  # sleep 1 second
         url = generate_url(bid_date, page_index)
-        print("%s %03d/%d %s" %(bid_date, page_index, page_number, url))
+        logger.info("%s %03d/%d %s" % (bid_date, page_index, page_number, url))
         page_index += 1  # ++page_index must result in a infinite loop
         scrape_bid_1page(url)
+    logger.debug("end scrape each page")
     return
